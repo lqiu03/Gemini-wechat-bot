@@ -1,7 +1,7 @@
 import { WechatyBuilder } from "wechaty";
 import qrcodeTerminal from "qrcode-terminal";
 import config from "./config.js";
-import ChatGPT from "./chatgpt.js";
+import ChatGPT from "./gemini.js";
 
 let bot: any = {};
 const startTime = new Date();
