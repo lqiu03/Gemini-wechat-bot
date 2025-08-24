@@ -1,75 +1,44 @@
-import { ChatGPTClient } from "@waylaidwanderer/chatgpt-api";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import config from "./config.js";
 
-const clientOptions = {
-  // (Optional) Support for a reverse proxy for the completions endpoint (private API server).
-  // Warning: This will expose your `openaiApiKey` to a third party. Consider the risks before using this.
-  // reverseProxyUrl: "",
-  // (Optional) Parameters as described in https://platform.openai.com/docs/api-reference/completions
-  modelOptions: {
-    // You can override the model name and any other parameters here, like so:
-    model: "gpt-3.5-turbo",
-    // I'm overriding the temperature to 0 here for demonstration purposes, but you shouldn't need to override this
-    // for normal usage.
-    temperature: 0,
-    // Set max_tokens here to override the default max_tokens of 1000 for the completion.
-    // max_tokens: 1000,
-  },
-  // (Optional) Davinci models have a max context length of 4097 tokens, but you may need to change this for other models.
-  // maxContextTokens: 4097,
-  // (Optional) You might want to lower this to save money if using a paid model like `text-davinci-003`.
-  // Earlier messages will be dropped until the prompt is within the limit.
-  // maxPromptTokens: 3097,
-  // (Optional) Set custom instructions instead of "You are ChatGPT...".
-  // promptPrefix: 'You are Bob, a cowboy in Western times...',
-  // (Optional) Set a custom name for the user
-  // userLabel: 'User',
-  // (Optional) Set a custom name for ChatGPT
-  // chatGptLabel: 'ChatGPT',
-  // (Optional) Set to true to enable `console.debug()` logging
-  debug: false,
-};
-
-const cacheOptions = {
-  // Options for the Keyv cache, see https://www.npmjs.com/package/keyv
-  // This is used for storing conversations, and supports additional drivers (conversations are stored in memory by default)
-  // For example, to use a JSON file (`npm i keyv-file`) as a database:
-  // store: new KeyvFile({ filename: 'cache.json' }),
-};
-
 export default class ChatGPT {
-  private chatGPT: any;
-  private chatOption: any;
+  private genAI: any;
+  private model: any;
+  private conversationHistory: Map<string, string[]>;
   constructor() {
-    this.chatGPT = new ChatGPTClient(
-      config.OPENAI_API_KEY,
-      {
-        ...clientOptions,
-        reverseProxyUrl: config.reverseProxyUrl,
-      },
-      cacheOptions
-    );
-    this.chatOption = {};
-    // this.test();
+    this.genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
+    this.model = this.genAI.getGenerativeModel({ model: "gemini-pro" });
+    this.conversationHistory = new Map();
   }
   async test() {
-    const response = await this.chatGPT.sendMessage("hello");
+    const response = await this.getChatResponse("hello");
     console.log("response test: ", response);
   }
+  async getChatResponse(message: string) {
+    try {
+      const result = await this.model.generateContent(message);
+      const response = await result.response;
+      return response.text();
+    } catch (error) {
+      console.error('Gemini API error:', error);
+      return '抱歉，我暂时无法回复。请稍后再试。';
+    }
+  }
   async getChatGPTReply(content, contactId) {
-    const data = await this.chatGPT.sendMessage(
-      content,
-      this.chatOption[contactId]
-    );
-    const { response, conversationId, messageId } = data;
-    this.chatOption = {
-      [contactId]: {
-        conversationId,
-        parentMessageId: messageId,
-      },
-    };
+    const history = this.conversationHistory.get(contactId) || [];
+    
+    const contextMessage = history.length > 0 
+      ? `Previous conversation:\n${history.join('\n')}\n\nUser: ${content}`
+      : content;
+    
+    const response = await this.getChatResponse(contextMessage);
+    
+    history.push(`User: ${content}`);
+    history.push(`AI: ${response}`);
+    if (history.length > 10) history.splice(0, 2);
+    this.conversationHistory.set(contactId, history);
+    
     console.log("response: ", response);
-    // response is a markdown-formatted string
     return response;
   }
 
@@ -80,10 +49,7 @@ export default class ChatGPT {
         content.trim().toLocaleLowerCase() ===
         config.resetKey.toLocaleLowerCase()
       ) {
-        this.chatOption = {
-          ...this.chatOption,
-          [contactId]: {},
-        };
+        this.conversationHistory.set(contactId, []);
         await contact.say("对话已被重置");
         return;
       }
@@ -104,7 +70,7 @@ export default class ChatGPT {
       if (e.message.includes("timed out")) {
         await contact.say(
           content +
-            "\n-----------\nERROR: Please try again, ChatGPT timed out for waiting response."
+            "\n-----------\nERROR: Please try again, Gemini timed out for waiting response."
         );
       }
     }
